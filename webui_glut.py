@@ -55,12 +55,12 @@ class FunASRApp:
             model,
             input, 
             language, 
+            hotword='glut',
             use_itn=True,
             batch_size_s=60, 
             merge_vad=True,
             merge_length_s=15,
             sentence_timestamp=True,
-            hotword='好哥哥',
             fs=16000
     ):
         if self.model is None:
@@ -71,8 +71,8 @@ class FunASRApp:
         gc.collect()
         torch.cuda.empty_cache()
         torch.cuda.ipc_collect()
-        language_abbr = {"auto": "auto", "zh": "zh", "en": "en", "yue": "yue", "ja": "ja", "ko": "ko", "nospeech": "nospeech"}
-        language = "auto" if len(language) < 1 else language
+        language_abbr = {"自动": "auto", "中文": "zh", "英文": "en", "粤语": "yue", "日文": "ja", "韩文": "ko", "无语言": "nospeech"}
+        language = "自动" if len(language) < 1 else language
         language = language_abbr[language]
 
         if isinstance(input, tuple):
@@ -114,21 +114,18 @@ class FunASRApp:
             gr.HTML(html_content)
             with gr.Row():
                 with gr.Column():
-                    audio_inputs = gr.Audio(label="上传音频或使用麦克风")
+                    audio_inputs = gr.Audio(label="上传音频或使用麦克风", format="wav", editable=True)
                     with gr.Accordion(label="配置"):
                         model_inputs = gr.Dropdown(label="模型", choices=["热词模型", "情感模型", "空载模型"], value="空载模型")
                         status_text = gr.Textbox(label="模型状态", value="模型未加载", interactive=False, visible=False)
-                        language_inputs = gr.Dropdown(label="语言", choices=["auto", "zh", "en", "yue", "ja", "ko", "nospeech"], value="auto")
+                        language_inputs = gr.Dropdown(label="语言", choices=["自动", "中文", "英文", "粤语", "日文", "韩文", "无语言"], value="自动")
+                        hotword_inputs = gr.Textbox(label="热词", value="热词 用空格 隔开 十字鱼")
                     fn_button = gr.Button("开始", variant="primary")
                 with gr.Column():
                     res_outputs = gr.Textbox(label="结果", visible=False)
                     text_outputs = gr.Textbox(label="结果")
-                    #txt_outputs = gr.Button("导出txt", variant="primary")
-                    #srt_outputs = gr.Button("导出srt", variant="primary")
             model_inputs.change(self.load_model, inputs=model_inputs, outputs=[status_text, model_inputs])
-            fn_button.click(self.model_inference, inputs=[model_inputs, audio_inputs, language_inputs], outputs=[res_outputs, text_outputs])
-            #txt_outputs.click(self.save_txt, inputs=[text_outputs])
-            #srt_outputs.click(self.model_inference, inputs=[res_outputs,])
+            fn_button.click(self.model_inference, inputs=[model_inputs, audio_inputs, language_inputs, hotword_inputs], outputs=[res_outputs, text_outputs])
 
         demo.launch(inbrowser=True, share=False)
 
