@@ -13,6 +13,15 @@ from pathlib import Path
 class FunASRApp:
     def __init__(self):
         self.model = None
+        self.hotword = self._load_hotwords()
+
+
+    def _load_hotwords(self):
+        try:
+            with open("hotwords.txt", "r") as f:
+                return f.read().strip()
+        except FileNotFoundError:
+            return "热词 用空格 隔开 十字鱼"
 
 
     def load_model(
@@ -67,7 +76,6 @@ class FunASRApp:
             merge_vad=True,
             merge_length_s=15,
             sentence_timestamp=True,
-            fs=16000
     ):        
         if "选择" in model:
             print(f'\033[31m请先选择加载模型\033[0m')
@@ -81,6 +89,9 @@ class FunASRApp:
         elif "热词" in model:
             model = "热词模型"
         
+        with open("hotwords.txt", "w") as f:
+            f.write(hotword)
+
         gc.collect()
         torch.cuda.empty_cache()
         torch.cuda.ipc_collect()
@@ -209,7 +220,7 @@ class FunASRApp:
                             value="TXT"
                         )
                         save_button = gr.Checkbox(label="保存文件", value=False)
-                        hotword_inputs = gr.Textbox(label="热词", value="热词 用空格 隔开 十字鱼")
+                        hotword_inputs = gr.Textbox(label="热词", value=self.hotword)
                     fn_button = gr.Button("开始", variant="primary")
                 with gr.Column():
                     status_text = gr.Textbox(label="状态", value="请先选择加载模型", interactive=False)
