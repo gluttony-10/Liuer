@@ -81,7 +81,7 @@ class FunASRApp:
             print(f'\033[31m请先选择加载模型\033[0m')
             return "请先选择加载模型", "请先选择加载模型"
         elif "情感" in model:
-            if format_selector in ["LRC", "SRC"]:
+            if format_selector in ["LRC", "SRT"]:
                 print(f'\033[31m情感模型仅支持TXT格式\033[0m')
                 return "情感模型仅支持TXT格式", "情感模型仅支持TXT格式"
             sentence_timestamp = False
@@ -125,10 +125,10 @@ class FunASRApp:
                 if save_button:
                     with open(f"{base_path}.lrc", "w") as f:
                         f.write(content)
-            elif format_selector == "SRC":
-                content = self._generate_src(res)
+            elif format_selector == "SRT":
+                content = self._generate_srt(res)
                 if save_button:
-                    with open(f"{base_path}.src", "w") as f:
+                    with open(f"{base_path}.srt", "w") as f:
                         f.write(content)
             else:
                 content = res[0]["text"]
@@ -165,26 +165,26 @@ class FunASRApp:
         return f"{mins:02d}:{secs:05.2f}"  # 示例：37.28秒 → 00:37.28
 
 
-    def _generate_src(self, res):
-        """生成标准SRC字幕格式（带序号和时间范围）"""
-        src_lines = []
+    def _generate_srt(self, res):
+        """生成标准SRT字幕格式（带序号和时间范围）"""
+        srt_lines = []
         for index, segment in enumerate(res[0]["sentence_info"], 1):
             # 时间格式转换（新增带小时的三段式格式）
-            start = self._format_src_time(segment.get("start", 0.0))
-            end = self._format_src_time(segment.get("end", 0.0))
+            start = self._format_srt_time(segment.get("start", 0.0))
+            end = self._format_srt_time(segment.get("end", 0.0))
             text = segment.get("text", "").strip()
             
             # 构建字幕块
-            src_lines.append(f"{index}")
-            src_lines.append(f"{start} --> {end}")
-            src_lines.append(f"{text}\n")
+            srt_lines.append(f"{index}")
+            srt_lines.append(f"{start} --> {end}")
+            srt_lines.append(f"{text}\n")
         
-        return "\n".join(src_lines)
+        return "\n".join(srt_lines)
     
 
-    def _format_src_time(self, seconds):
+    def _format_srt_time(self, seconds):
         seconds /= 1000
-        """SRC专用时间格式转换（小时:分钟:秒,毫秒）"""
+        """SRT专用时间格式转换（小时:分钟:秒,毫秒）"""
         hours = int(seconds // 3600)
         remainder = seconds % 3600
         mins = int(remainder // 60)
@@ -216,7 +216,7 @@ class FunASRApp:
                         )
                         format_selector = gr.Dropdown(
                             label="格式",
-                            choices=["TXT", "LRC", "SRC"],
+                            choices=["TXT", "LRC", "SRT"],
                             value="TXT"
                         )
                         save_button = gr.Checkbox(label="保存文件", value=False)
