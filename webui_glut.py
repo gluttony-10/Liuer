@@ -31,7 +31,6 @@ class FunASRApp:
             vad_kwargs={"max_single_segment_time": 30000}, 
             punc_model="ct-punc",  
             spk_model="cam++",
-            device="cuda",
             disable_update=True,
     ):
         gc.collect()
@@ -48,23 +47,12 @@ class FunASRApp:
             model = "情感模型"
         elif model == "热词模型":
             model_name = "iic/speech_seaco_paraformer_large_asr_nat-zh-cn-16k-common-vocab8404-pytorch"
-        elif model == "热词模型onnx版":
-            model_name = "iic/speech_seaco_paraformer_large_asr_nat-zh-cn-16k-common-vocab8404-pytorch"
-            model_punc = "iic/punc_ct-transformer_cn-en-common-vocab471067-large"
-            self.model = SeacoParaformer(model_name, batch_size=1, quantize=True)
-            self.model2 = CT_Transformer(model_punc, batch_size=1, quantize=True)
-            print(f'\033[32m{model}加载成功\033[0m')
-            return f"{model}加载完成", gr.update(interactive=True)
         elif model == "whisper-large-v3-turbo":
-            self.model = whisper.load_model("turbo", download_root="models")
-            print(f'\033[32m{model}加载成功\033[0m')
-            return f"{model}加载完成", gr.update(interactive=True)
-        elif model == "whisper-large-v3-turbo-cpu":
-            self.model = whisper.load_model("turbo", download_root="models", device="cpu")
+            self.model = whisper.load_model("turbo", download_root="models", device="cuda" if torch.cuda.is_available() else "cpu")
             print(f'\033[32m{model}加载成功\033[0m')
             return f"{model}加载完成", gr.update(interactive=True)
         elif model == "whisper-large-v3":
-            self.model = whisper.load_model("large", download_root="models")
+            self.model = whisper.load_model("large", download_root="models", device="cuda" if torch.cuda.is_available() else "cpu")
             print(f'\033[32m{model}加载成功\033[0m')
             return f"{model}加载完成", gr.update(interactive=True)
         
@@ -75,8 +63,8 @@ class FunASRApp:
             vad_kwargs=vad_kwargs,
             punc_model=punc_model, 
             spk_model=spk_model,
-            device=device,
             disable_update=disable_update,
+            device="cuda" if torch.cuda.is_available() else "cpu",
         )
         print(f'\033[32m{model}加载成功\033[0m')
         return f"{model}加载完成", gr.update(interactive=True)
@@ -114,16 +102,6 @@ class FunASRApp:
             model = "情感模型"
         elif model == "热词模型":
             model = "热词模型"
-        elif model == "热词模型onnx版":
-            for input in video_input:
-                asr_result = self.model(
-                input,
-                hotwords=hotwords
-                )
-                punc_result = self.model2(asr_result[0]['preds'])
-                res = self.merge_asr_and_punc(asr_result, punc_result, input)
-                status_text, content = self.process_result(res, input, format_selector, save_button, model)
-            return status_text, content
         elif "whisper" in model:
             for input in video_input:
                 res = self.model.transcribe(input)
@@ -154,66 +132,6 @@ class FunASRApp:
             status_text, content = self.process_result(res, input, format_selector, save_button, model)
         #print(res) # 原始输出
         return status_text, content
-    
-
-    def merge_asr_and_punc(self, asr_result, punc_result, audio_key):
-        # 提取 asr_result 中的信息
-        timestamps = asr_result[0]['timestamp']
-        
-        # 提取 punc_result 中的信息
-        original_text = asr_result[0]['preds'].split()
-        punctuated_text = punc_result[0]
-        
-        # 根据标点符号分割文本和时间戳
-        sentences = []
-        sentence_timestamps = []
-        start_index = 0
-        n = 1
-        
-        # 定义标点符号
-        punctuation_marks = "，。！？；："
-        
-        for i, char in enumerate(punctuated_text):
-            if char in punctuation_marks:
-                end_index = i
-                sentence = original_text[start_index:end_index-n+1] + [char]
-                print(sentence)
-                sentence_timestamp = timestamps[start_index:(end_index-n+1)]
-                sentences.append(sentence)
-                sentence_timestamps.append(sentence_timestamp)
-                start_index = end_index-n+1
-                n += 1
-        
-        # 处理最后一个句子（如果没有以标点符号结尾）
-        if start_index < len(punctuated_text):
-            sentence = punctuated_text[start_index:]
-            sentence_timestamp = timestamps[start_index:]
-            sentences.append(sentence)
-            sentence_timestamps.append(sentence_timestamp)
-        
-        # 构建最终的输出格式
-        sentence_info = []
-        
-        for sentence, timestamp in zip(sentences, sentence_timestamps):
-            if timestamp:  # 确保 timestamp 不为空
-                start_time = timestamp[0][0]
-                end_time = timestamp[-1][1]
-                sentence_info.append({
-                    'text': sentence,
-                    'start': start_time,
-                    'end': end_time,
-                    'timestamp': timestamp,
-                    'spk': 0
-                })
-        
-        output = [{
-            'key': audio_key,
-            'text': punctuated_text,
-            'timestamp': [ts for sublist in sentence_timestamps for ts in sublist],
-            'sentence_info': sentence_info
-        }]
-        
-        return output
     
 
     def process_result(
@@ -325,7 +243,7 @@ class FunASRApp:
                     with gr.Accordion(label="配置"):
                         model_inputs = gr.Dropdown(
                             label="模型", 
-                            choices=["热词模型", "热词模型onnx版", "情感模型", "whisper-large-v3-turbo", "whisper-large-v3-turbo-cpu", "whisper-large-v3", "请先选择加载模型"], 
+                            choices=["热词模型", "情感模型", "whisper-large-v3-turbo", "whisper-large-v3", "请先选择加载模型"], 
                             value="请先选择加载模型"
                         )
                         language_inputs = gr.Dropdown(

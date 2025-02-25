@@ -18,3 +18,4 @@ PyYAML>=5.1.2
 onnx
 sentencepiece
 whisper
+faster-whisper
