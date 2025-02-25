@@ -6,8 +6,9 @@ import torch
 from funasr import AutoModel
 from funasr_onnx import SeacoParaformer, CT_Transformer
 import gc
+import whisper
 
-os.environ["MODELSCOPE_CACHE"] = ".glut/.modelscope"
+os.environ["MODELSCOPE_CACHE"] = "./"
 
 class FunASRApp:
     def __init__(self):
@@ -52,6 +53,18 @@ class FunASRApp:
             model_punc = "iic/punc_ct-transformer_cn-en-common-vocab471067-large"
             self.model = SeacoParaformer(model_name, batch_size=1, quantize=True)
             self.model2 = CT_Transformer(model_punc, batch_size=1, quantize=True)
+            print(f'\033[32m{model}加载成功\033[0m')
+            return f"{model}加载完成", gr.update(interactive=True)
+        elif model == "whisper-large-v3-turbo":
+            self.model = whisper.load_model("turbo", download_root="models")
+            print(f'\033[32m{model}加载成功\033[0m')
+            return f"{model}加载完成", gr.update(interactive=True)
+        elif model == "whisper-large-v3-turbo-cpu":
+            self.model = whisper.load_model("turbo", download_root="models", device="cpu")
+            print(f'\033[32m{model}加载成功\033[0m')
+            return f"{model}加载完成", gr.update(interactive=True)
+        elif model == "whisper-large-v3":
+            self.model = whisper.load_model("large", download_root="models")
             print(f'\033[32m{model}加载成功\033[0m')
             return f"{model}加载完成", gr.update(interactive=True)
         
@@ -111,6 +124,16 @@ class FunASRApp:
                 res = self.merge_asr_and_punc(asr_result, punc_result, input)
                 status_text, content = self.process_result(res, input, format_selector, save_button, model)
             return status_text, content
+        elif "whisper" in model:
+            for input in video_input:
+                res = self.model.transcribe(input)
+                res["sentence_info"] = res.pop("segments")
+                for segment in res["sentence_info"]:
+                    segment["start"] *= 1000  # 秒 -> 毫秒
+                    segment["end"] *= 1000    # 秒 -> 毫秒
+                res = [res]
+                status_text, content = self.process_result(res, input, format_selector, save_button, model)
+            return status_text, content
 
         language_abbr = {"自动": "auto", "中文": "zh", "英文": "en", "粤语": "yue", "日文": "ja", "韩文": "ko", "无语言": "nospeech"}
         language = "自动" if len(language) < 1 else language
@@ -129,7 +152,7 @@ class FunASRApp:
                 hotwords=hotwords,
             )
             status_text, content = self.process_result(res, input, format_selector, save_button, model)
-        print(res)
+        #print(res) # 原始输出
         return status_text, content
     
 
@@ -198,7 +221,8 @@ class FunASRApp:
             res, 
             input, 
             format_selector, 
-            save_button, model
+            save_button, 
+            model,
     ):
         output_dir = "outputs"
         os.makedirs(output_dir, exist_ok=True)
@@ -301,7 +325,7 @@ class FunASRApp:
                     with gr.Accordion(label="配置"):
                         model_inputs = gr.Dropdown(
                             label="模型", 
-                            choices=["热词模型", "热词模型onnx版", "情感模型", "请先选择加载模型"], 
+                            choices=["热词模型", "热词模型onnx版", "情感模型", "whisper-large-v3-turbo", "whisper-large-v3-turbo-cpu", "whisper-large-v3", "请先选择加载模型"], 
                             value="请先选择加载模型"
                         )
                         language_inputs = gr.Dropdown(

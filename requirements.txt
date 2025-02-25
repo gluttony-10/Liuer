@@ -17,3 +17,4 @@ kaldi-native-fbank
 PyYAML>=5.1.2
 onnx
 sentencepiece
+whisper
