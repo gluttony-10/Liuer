@@ -1,6 +1,7 @@
 .glut/
 outputs/
 models/
+temp/
 *.bat
 hotwords.txt
 test.py

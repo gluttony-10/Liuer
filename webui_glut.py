@@ -4,7 +4,6 @@ import os
 import gradio as gr
 import torch
 from funasr import AutoModel
-from funasr_onnx import SeacoParaformer, CT_Transformer
 import gc
 import whisper
 
@@ -34,8 +33,9 @@ class FunASRApp:
             disable_update=True,
     ):
         gc.collect()
-        torch.cuda.empty_cache()
-        torch.cuda.ipc_collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            torch.cuda.ipc_collect()
         if "选择" in model:
             self.model = None
             print(f'\033[31m请先选择加载模型\033[0m')
@@ -85,8 +85,9 @@ class FunASRApp:
             sentence_timestamp=True,
     ):        
         gc.collect()
-        torch.cuda.empty_cache()
-        torch.cuda.ipc_collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            torch.cuda.ipc_collect()
 
         with open("hotwords.txt", "w") as f:
             f.write(hotwords)
@@ -297,17 +298,20 @@ html_content = """
 """
 
 if __name__ == "__main__":
-    total_vram_in_gb = torch.cuda.get_device_properties(0).total_memory / 1073741824
     print("开源项目：https://github.com/gluttony-10/FunASR-webui bilibili@十字鱼 https://space.bilibili.com/893892 ")
     print(f'\033[32mCUDA版本：{torch.version.cuda}\033[0m')
     print(f'\033[32mPytorch版本：{torch.__version__}\033[0m')
-    print(f'\033[32m显卡型号：{torch.cuda.get_device_name()}\033[0m')
-    print(f'\033[32m显存大小：{total_vram_in_gb:.2f}GB\033[0m')
-    if torch.cuda.get_device_capability()[0] >= 8:
-        print(f'\033[32m支持BF16\033[0m')
-        dtype = torch.bfloat16
+    if torch.cuda.is_available():
+        print(f'\033[32m显卡型号：{torch.cuda.get_device_name()}\033[0m')
+        total_vram_in_gb = torch.cuda.get_device_properties(0).total_memory / 1073741824
+        print(f'\033[32m显存大小：{total_vram_in_gb:.2f}GB\033[0m')
+        if torch.cuda.get_device_capability()[0] >= 8:
+            print(f'\033[32m支持BF16\033[0m')
+            dtype = torch.bfloat16
+        else:
+            print(f'\033[32m不支持BF16，使用FP16\033[0m')
+            dtype = torch.float16
     else:
-        print(f'\033[32m不支持BF16，使用FP16\033[0m')
-        dtype = torch.float16
+        print(f'\033[32mCUDA不可用，启用CPUu模式\033[0m')
     app = FunASRApp()
     app.launch()
