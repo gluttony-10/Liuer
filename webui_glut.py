@@ -6,6 +6,8 @@ import torch
 from funasr import AutoModel
 import gc
 import whisper
+import subprocess
+import re
 
 os.environ["MODELSCOPE_CACHE"] = "./"
 
@@ -17,7 +19,7 @@ class FunASRApp:
 
     def _load_hotwords(self):
         try:
-            with open("hotwords.txt", "r") as f:
+            with open("hotwords.txt", "r", encoding="utf-8") as f:
                 return f.read().strip()
         except FileNotFoundError:
             return "热词 用空格 隔开 十字鱼"
@@ -40,13 +42,17 @@ class FunASRApp:
             self.model = None
             print(f'\033[31m请先选择加载模型\033[0m')
             return "请先选择加载模型", gr.update(interactive=True)
-        elif "情感" in model:
+        elif model == "情感模型":
             punc_model = None
             spk_model = None
             model_name = "iic/SenseVoiceSmall"
-            model = "情感模型"
         elif model == "热词模型":
             model_name = "iic/speech_seaco_paraformer_large_asr_nat-zh-cn-16k-common-vocab8404-pytorch"
+        elif model == "情感模型（带时间戳）":
+            self.model = whisper.load_model("turbo", download_root="models", device="cuda" if torch.cuda.is_available() else "cpu")
+            self.model2 = AutoModel(model= "iic/SenseVoiceSmall")
+            print(f'\033[32m{model}加载成功\033[0m')
+            return f"{model}加载完成", gr.update(interactive=True)
         elif model == "whisper-large-v3-turbo":
             self.model = whisper.load_model("turbo", download_root="models", device="cuda" if torch.cuda.is_available() else "cpu")
             print(f'\033[32m{model}加载成功\033[0m')
@@ -89,23 +95,60 @@ class FunASRApp:
             torch.cuda.empty_cache()
             torch.cuda.ipc_collect()
 
-        with open("hotwords.txt", "w") as f:
+        with open("hotwords.txt", "w", encoding="utf-8") as f:
             f.write(hotwords)
 
         if "选择" in model:
             print(f'\033[31m请先选择加载模型\033[0m')
             return "请先选择加载模型", "请先选择加载模型"
-        elif "情感" in model:
+        elif model == "情感模型":
             if format_selector in ["LRC", "SRT"]:
                 print(f'\033[31m情感模型仅支持TXT格式\033[0m')
                 return "情感模型仅支持TXT格式", "情感模型仅支持TXT格式"
             sentence_timestamp = False
-            model = "情感模型"
         elif model == "热词模型":
             model = "热词模型"
+        elif model == "情感模型（带时间戳）":
+            for input in video_input:
+                res = self.model.transcribe(input, no_speech_threshold=0.5, logprob_threshold=None, compression_ratio_threshold=2.2)
+                full_text = ""
+                for i, segment in enumerate(res['segments']):
+                    start = segment['start']
+                    end = segment['end']
+                    filename = os.path.basename(input)
+                    filename_without_extension, extension = os.path.splitext(filename)
+                    # FFmpeg命令参数
+                    os.makedirs("temp", exist_ok=True)
+                    temp_path = os.path.join("temp", f"{filename_without_extension}_{i:04d}_{start:.2f}-{end:.2f}.{extension}")
+                    cmd = [
+                        'ffmpeg',
+                        '-y',  # 覆盖已存在文件
+                        '-ss', str(start),   # 开始时间
+                        '-to', str(end),     # 结束时间
+                        '-i', input,    # 输入文件
+                        '-c', 'copy',        # 流复制（无损快速）
+                        temp_path
+                    ]
+                    # 执行命令
+                    try:
+                        subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                        asr_result = self.model2.generate(input=temp_path)
+                        cleaned_text = re.sub(r'<[^>]+>', '', asr_result[0]["text"])
+                        res['segments'][i]['text'] = cleaned_text
+                        full_text += " " + cleaned_text
+                    except subprocess.CalledProcessError as e:
+                        print(f"分割失败：{e.stderr.decode()}")
+                res['text'] = full_text
+                res["sentence_info"] = res.pop("segments")
+                for segment in res["sentence_info"]:
+                    segment["start"] *= 1000  # 秒 -> 毫秒
+                    segment["end"] *= 1000    # 秒 -> 毫秒
+                res = [res]
+                status_text, content = self.process_result(res, input, format_selector, save_button, model)
+            return status_text, content
         elif "whisper" in model:
             for input in video_input:
-                res = self.model.transcribe(input)
+                res = self.model.transcribe(input, no_speech_threshold=0.5, logprob_threshold=None, compression_ratio_threshold=2.2)
                 res["sentence_info"] = res.pop("segments")
                 for segment in res["sentence_info"]:
                     segment["start"] *= 1000  # 秒 -> 毫秒
@@ -131,7 +174,7 @@ class FunASRApp:
                 hotwords=hotwords,
             )
             status_text, content = self.process_result(res, input, format_selector, save_button, model)
-        #print(res) # 原始输出
+        print(res) # 原始输出
         return status_text, content
     
 
@@ -153,17 +196,17 @@ class FunASRApp:
         if format_selector == "LRC":
             content = self._generate_lrc(res)
             if save_button:
-                with open(f"{base_path}.lrc", "w") as f:
+                with open(f"{base_path}.lrc", "w", encoding="utf-8") as f:
                     f.write(content)
         elif format_selector == "SRT":
             content = self._generate_srt(res)
             if save_button:
-                with open(f"{base_path}.srt", "w") as f:
+                with open(f"{base_path}.srt", "w", encoding="utf-8") as f:
                     f.write(content)
         else:
             content = res[0]["text"]
             if format_selector:
-                with open(f"{base_path}.txt", "w") as f:
+                with open(f"{base_path}.txt", "w", encoding="utf-8") as f:
                     f.write(content)
 
         status_text = f"{model}识别成功"
@@ -244,7 +287,7 @@ class FunASRApp:
                     with gr.Accordion(label="配置"):
                         model_inputs = gr.Dropdown(
                             label="模型", 
-                            choices=["热词模型", "情感模型", "whisper-large-v3-turbo", "whisper-large-v3", "请先选择加载模型"], 
+                            choices=["情感模型", "热词模型", "情感模型（带时间戳）", "whisper-large-v3-turbo", "whisper-large-v3", "请先选择加载模型"], 
                             value="请先选择加载模型"
                         )
                         language_inputs = gr.Dropdown(
