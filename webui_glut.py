@@ -50,7 +50,7 @@ class FunASRApp:
             model_name = "iic/speech_seaco_paraformer_large_asr_nat-zh-cn-16k-common-vocab8404-pytorch"
         elif model == "情感模型（带时间戳）":
             self.model = whisper.load_model("turbo", download_root="models", device="cuda" if torch.cuda.is_available() else "cpu")
-            self.model2 = AutoModel(model= "iic/SenseVoiceSmall")
+            self.model2 = AutoModel(model= "iic/SenseVoiceSmall", disable_update=True, device="cuda" if torch.cuda.is_available() else "cpu")
             print(f'\033[32m{model}加载成功\033[0m')
             return f"{model}加载完成", gr.update(interactive=True)
         elif model == "whisper-large-v3-turbo":
@@ -119,7 +119,7 @@ class FunASRApp:
                     filename_without_extension, extension = os.path.splitext(filename)
                     # FFmpeg命令参数
                     os.makedirs("temp", exist_ok=True)
-                    temp_path = os.path.join("temp", f"{filename_without_extension}_{i:04d}_{start:.2f}-{end:.2f}.{extension}")
+                    temp_path = os.path.join("temp", f"{filename_without_extension}_{i:04d}_{start:.2f}-{end:.2f}{extension}")
                     cmd = [
                         'ffmpeg',
                         '-y',  # 覆盖已存在文件
@@ -138,6 +138,13 @@ class FunASRApp:
                         full_text += " " + cleaned_text
                     except subprocess.CalledProcessError as e:
                         print(f"分割失败：{e.stderr.decode()}")
+                    finally:
+                        # 新增清理代码
+                        if os.path.exists(temp_path):
+                            try:
+                                os.remove(temp_path)
+                            except Exception as e:
+                                print(f"清理临时文件失败: {str(e)}")
                 res['text'] = full_text
                 res["sentence_info"] = res.pop("segments")
                 for segment in res["sentence_info"]:
@@ -174,7 +181,7 @@ class FunASRApp:
                 hotwords=hotwords,
             )
             status_text, content = self.process_result(res, input, format_selector, save_button, model)
-        print(res) # 原始输出
+        #print(res) # 原始输出
         return status_text, content
     
 
