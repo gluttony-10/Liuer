@@ -49,8 +49,19 @@ class FunASRApp:
         elif model == "热词模型":
             model_name = "iic/speech_seaco_paraformer_large_asr_nat-zh-cn-16k-common-vocab8404-pytorch"
         elif model == "情感模型（带时间戳）":
-            self.model = whisper.load_model("turbo", download_root="models", device="cuda" if torch.cuda.is_available() else "cpu")
-            self.model2 = AutoModel(model= "iic/SenseVoiceSmall", disable_update=True, device="cuda" if torch.cuda.is_available() else "cpu")
+            self.model = AutoModel(
+                model= "iic/SenseVoiceSmall", 
+                vad_model=vad_model, 
+                vad_kwargs=vad_kwargs,
+                disable_update=disable_update,
+                device="cuda" if torch.cuda.is_available() else "cpu",
+            )
+            self.model2 = AutoModel(
+                model="fsmn-vad", 
+                max_end_silence_time=200, 
+                disable_update=True, 
+                device="cuda" if torch.cuda.is_available() else "cpu"
+            )
             print(f'\033[32m{model}加载成功\033[0m')
             return f"{model}加载完成", gr.update(interactive=True)
         elif model == "whisper-large-v3-turbo":
@@ -83,7 +94,7 @@ class FunASRApp:
             language,
             hotwords,
             format_selector,
-            save_button,
+            speaker,
             use_itn=True,
             batch_size_s=60, 
             merge_vad=True,
@@ -94,6 +105,7 @@ class FunASRApp:
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
             torch.cuda.ipc_collect()
+        output_path=[]
 
         with open("hotwords.txt", "w", encoding="utf-8") as f:
             f.write(hotwords)
@@ -102,6 +114,7 @@ class FunASRApp:
             print(f'\033[31m请先选择加载模型\033[0m')
             return "请先选择加载模型", "请先选择加载模型"
         elif model == "情感模型":
+            speaker = False
             if format_selector in ["LRC", "SRT"]:
                 print(f'\033[31m情感模型仅支持TXT格式\033[0m')
                 return "情感模型仅支持TXT格式", "情感模型仅支持TXT格式"
@@ -109,12 +122,14 @@ class FunASRApp:
         elif model == "热词模型":
             model = "热词模型"
         elif model == "情感模型（带时间戳）":
+            speaker = False
             for input in video_input:
-                res = self.model.transcribe(input, no_speech_threshold=0.5, logprob_threshold=None, compression_ratio_threshold=2.2)
+                res = self.model2.generate(input)
                 full_text = ""
-                for i, segment in enumerate(res['segments']):
-                    start = segment['start']
-                    end = segment['end']
+                sentence_info = []
+                for i, value in enumerate(res[0]['value']):
+                    start = value[0]/1000
+                    end = value[1]/1000
                     filename = os.path.basename(input)
                     filename_without_extension, extension = os.path.splitext(filename)
                     # FFmpeg命令参数
@@ -132,10 +147,14 @@ class FunASRApp:
                     # 执行命令
                     try:
                         subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-                        asr_result = self.model2.generate(input=temp_path)
+                        asr_result = self.model.generate(input=temp_path)
                         cleaned_text = re.sub(r'<[^>]+>', '', asr_result[0]["text"])
-                        res['segments'][i]['text'] = cleaned_text
                         full_text += " " + cleaned_text
+                        sentence_info.append({
+                            "text": cleaned_text,
+                            "start": start * 1000,
+                            "end": end * 1000
+                        })
                     except subprocess.CalledProcessError as e:
                         print(f"分割失败：{e.stderr.decode()}")
                     finally:
@@ -145,24 +164,30 @@ class FunASRApp:
                                 os.remove(temp_path)
                             except Exception as e:
                                 print(f"清理临时文件失败: {str(e)}")
-                res['text'] = full_text
-                res["sentence_info"] = res.pop("segments")
-                for segment in res["sentence_info"]:
-                    segment["start"] *= 1000  # 秒 -> 毫秒
-                    segment["end"] *= 1000    # 秒 -> 毫秒
-                res = [res]
-                status_text, content = self.process_result(res, input, format_selector, save_button, model)
-            return status_text, content
+                res[0].update({
+                    "text": full_text.strip(),
+                    "sentence_info": sentence_info
+                })
+                #print(res) # 原始输出
+                status_text, content, output_file = self.process_result(res, model, input, format_selector, speaker)
+                output_path.append(output_file)
+            return status_text, content, gr.update(value=output_path, visible=True)
         elif "whisper" in model:
+            speaker = False
+            language_abbr = {"自动": None, "中文": "zh", "英文": "en", "粤语": "yue", "日文": "ja", "韩文": "ko", "无语言": "nospeech"}
+            language = "自动" if len(language) < 1 else language
+            language = language_abbr[language]
             for input in video_input:
-                res = self.model.transcribe(input, no_speech_threshold=0.5, logprob_threshold=None, compression_ratio_threshold=2.2)
+                res = self.model.transcribe(input, no_speech_threshold=0.5, logprob_threshold=None, compression_ratio_threshold=2.2, language=language)
                 res["sentence_info"] = res.pop("segments")
                 for segment in res["sentence_info"]:
                     segment["start"] *= 1000  # 秒 -> 毫秒
                     segment["end"] *= 1000    # 秒 -> 毫秒
                 res = [res]
-                status_text, content = self.process_result(res, input, format_selector, save_button, model)
-            return status_text, content
+                #print(res) # 原始输出
+                status_text, content, output_file = self.process_result(res, model, input, format_selector, speaker)
+                output_path.append(output_file)
+            return status_text, content, gr.update(value=output_path, visible=True)
 
         language_abbr = {"自动": "auto", "中文": "zh", "英文": "en", "粤语": "yue", "日文": "ja", "韩文": "ko", "无语言": "nospeech"}
         language = "自动" if len(language) < 1 else language
@@ -180,18 +205,19 @@ class FunASRApp:
                 sentence_timestamp=sentence_timestamp,
                 hotwords=hotwords,
             )
-            status_text, content = self.process_result(res, input, format_selector, save_button, model)
-        #print(res) # 原始输出
-        return status_text, content
+            status_text, content, output_file = self.process_result(res, model, input, format_selector, speaker)
+            output_path.append(output_file)
+        print(res) # 原始输出
+        return status_text, content, gr.update(value=output_path, visible=True)
     
 
     def process_result(
-            self, 
-            res, 
-            input, 
-            format_selector, 
-            save_button, 
-            model,
+        self, 
+        res, 
+        model, 
+        input, 
+        format_selector, 
+        speaker,
     ):
         output_dir = "outputs"
         os.makedirs(output_dir, exist_ok=True)
@@ -201,36 +227,37 @@ class FunASRApp:
         # 根据格式生成内容
         base_path = os.path.join(output_dir, filename_without_extension)
         if format_selector == "LRC":
-            content = self._generate_lrc(res)
-            if save_button:
-                with open(f"{base_path}.lrc", "w", encoding="utf-8") as f:
-                    f.write(content)
+            output_file = f"{base_path}.lrc"
+            content = self._generate_lrc(res, speaker)
         elif format_selector == "SRT":
-            content = self._generate_srt(res)
-            if save_button:
-                with open(f"{base_path}.srt", "w", encoding="utf-8") as f:
-                    f.write(content)
+            output_file = f"{base_path}.srt"
+            content = self._generate_srt(res, speaker)
         else:
-            content = res[0]["text"]
-            if format_selector:
-                with open(f"{base_path}.txt", "w", encoding="utf-8") as f:
-                    f.write(content)
+            output_file = f"{base_path}.txt"
+            if speaker:
+                content = ""
+                for i in res[0]["sentence_info"]:
+                    content += f"说话人{i['spk']}：{i['text']}\n"
+            else:
+                content = res[0]["text"]
 
+        with open(output_file, "w", encoding="utf-8") as f:
+            f.write(content)
         status_text = f"{model}识别成功"
-        if save_button:
-            status_text += f"，{format_selector}文件已保存至{output_dir}"
-        else:
-            status_text += "，未选择保存文件"
+        status_text += f"，{format_selector}文件已保存至{output_dir}"
 
-        return status_text, content
+        return status_text, content, output_file
 
 
-    def _generate_lrc(self, res):
+    def _generate_lrc(self, res, speaker):
         """生成标准LRC歌词格式"""
         lrc_lines = []
         for segment in res[0]["sentence_info"]:
             start = self._format_lrc_time(segment.get("start", 0.0))
-            text = segment.get("text", "")
+            if speaker:
+                text = f"说话人{segment['spk']}：{segment['text']}"
+            else:
+                text = segment.get("text", "")
             # 添加类型转换
             if isinstance(text, list):
                 text = "".join(text)
@@ -249,14 +276,17 @@ class FunASRApp:
         return f"{mins:02d}:{secs:05.2f}"  # 示例：37.28秒 → 00:37.28
 
 
-    def _generate_srt(self, res):
+    def _generate_srt(self, res, speaker):
         """生成标准SRT字幕格式（带序号和时间范围）"""
         srt_lines = []
         for index, segment in enumerate(res[0]["sentence_info"], 1):
             # 时间格式转换（新增带小时的三段式格式）
             start = self._format_srt_time(segment.get("start", 0.0))
             end = self._format_srt_time(segment.get("end", 0.0))
-            text = segment.get("text", "")
+            if speaker:
+                text = f"说话人{segment['spk']}：{segment['text']}"
+            else:
+                text = segment.get("text", "")
             # 添加类型转换
             if isinstance(text, list):
                 text = "".join(text)
@@ -307,12 +337,14 @@ class FunASRApp:
                             choices=["TXT", "LRC", "SRT"],
                             value="TXT"
                         )
-                        save_button = gr.Checkbox(label="保存文件", value=False)
                         hotwords_inputs = gr.Textbox(label="热词", value=self.hotwords)
+                        speaker = gr.Checkbox(label="识别说话人（仅热词模型支持）", value=False)
                     fn_button = gr.Button("开始", variant="primary")
                 with gr.Column():
                     status_text = gr.Textbox(label="状态", value="请先选择加载模型", interactive=False)
-                    text_outputs = gr.Textbox(label="输出")
+                    text_outputs = gr.Textbox(label="输出", show_copy_button=True)
+                    download_file = gr.File(label="下载文件", visible=False)  # 文件下载组件
+
             model_inputs.change(
                 self.load_model, 
                 inputs=model_inputs, 
@@ -326,9 +358,9 @@ class FunASRApp:
                     language_inputs, 
                     hotwords_inputs,
                     format_selector,
-                    save_button
+                    speaker,
                 ],
-                outputs=[status_text, text_outputs],
+                outputs=[status_text, text_outputs, download_file],
                 queue=True,
                 show_progress=True
             )
