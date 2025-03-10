@@ -368,14 +368,13 @@ class FunASRApp:
 
 html_content = """
 <div>
-    <h2 style="font-size: 22px;text-align: center;">语音识别 字幕制作</h2>
-</div>
-<div style="text-align: center; font-size: 15px; font-weight: bold; color: red;">
-    ⚠️ 该演示仅供学术研究和体验使用。
+    <h2 style="font-size: 30px;text-align: center;">六耳 Liuer</h2>
 </div>
 <div style="text-align: center;">
-    制作 by 十字鱼|
-    <a href="https://space.bilibili.com/893892">🌐 bilibili</a> 
+    十字鱼
+    <a href="https://space.bilibili.com/893892">🌐bilibili</a> 
+    |gluttony-10
+    <a href="https://github.com/gluttony-10/Liuer">🌐github</a> 
 </div>
 """
 
