@@ -4,12 +4,14 @@
 2.字幕制作
 3.情感识别
 4.说话人识别
+5.视频自动下载识别
 
 待支持功能：
 1.翻译功能
 
 一键包详见 [bilibili@十字鱼](https://space.bilibili.com/893892)
 ## 更新
+250503 新增视频自动下载识别功能 更新依赖 修复热词BUG 优化输出
 250310 修正情感模型（带时间戳） 添加识别说话人功能（仅热词模型） 自动保存识别文档，增加下载按钮
 ## 安装
 ```
@@ -19,7 +21,7 @@ pip install -r requirements.txt
 ```
 ## 运行
 ```
-python webui_glut.py
+python glut.py
 ```
 ## 参考项目
 https://github.com/modelscope/FunASR
@@ -27,3 +29,5 @@ https://github.com/modelscope/FunASR
 https://github.com/FunAudioLLM/SenseVoice
 
 https://github.com/openai/whisper
+
+https://github.com/yt-dlp/yt-dlp

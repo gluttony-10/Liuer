@@ -1,9 +1,9 @@
---extra-index-url https://download.pytorch.org/whl/cu124
+--extra-index-url https://download.pytorch.org/whl/cu128
 torch>=2.5.0
 torchaudio>=2.5.0
 scikit-learn>=1.3.2
 gradio
-funasr==1.2.4
+funasr
 openai-whisper
 modelscope
 huggingface
@@ -11,4 +11,6 @@ huggingface_hub
 numpy<=1.26.4
 transformers
 accelerate
+yt-dlp
+openai
 
