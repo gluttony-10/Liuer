@@ -190,6 +190,7 @@ class FunASRApp:
                 except Exception as e:
                     print(f"\033[31m检测报错：{str(e)}\033[0m")
                     continue
+            return status_text, content, gr.update(value=output_path, visible=True)
         elif "whisper" in model:
             language_abbr = {"自动": None, "中文": "zh", "英文": "en", "粤语": "yue", "日文": "ja", "韩文": "ko", "无语言": "nospeech"}
             language = "自动" if len(language) < 1 else language
@@ -209,6 +210,7 @@ class FunASRApp:
                 except Exception as e:
                     print(f"\033[31m检测报错：{str(e)}\033[0m")
                     continue
+            return status_text, content, gr.update(value=output_path, visible=True)
 
         language_abbr = {"自动": "auto", "中文": "zh", "英文": "en", "粤语": "yue", "日文": "ja", "韩文": "ko", "无语言": "nospeech"}
         language = "自动" if len(language) < 1 else language
@@ -344,6 +346,7 @@ class FunASRApp:
                 
             os.makedirs(f"outputs/{timestamp}", exist_ok=True)
             cmd = [
+                PYTHON,
                 YTDLP,
                 "--quiet",
                 "-P", f"outputs/{timestamp}",
@@ -385,7 +388,7 @@ class FunASRApp:
                                     lines=7,
                                     show_copy_button=True,
                                 )       
-                                gr.Markdown("点击查看自动下载视屏的[支持网站](https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md)")
+                                gr.Markdown("点击查看自动下载视频的[支持网站](https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md)")
                     with gr.Accordion(label="配置"):
                         model_inputs = gr.Dropdown(
                             label="模型", 
@@ -426,7 +429,11 @@ class FunASRApp:
                     format_selector,
                     speaker,
                 ],
-                outputs=[status_text, text_outputs, download_file],
+                outputs=[
+                    status_text, 
+                    text_outputs, 
+                    download_file
+                ],
                 queue=True,
                 show_progress=True
             )
