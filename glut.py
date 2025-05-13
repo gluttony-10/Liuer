@@ -10,11 +10,12 @@ import subprocess
 import re
 import glob
 from datetime import datetime
+from openai import OpenAI
 
 
 PYTHON = os.environ.get("PYTHON", "python")
 YTDLP = os.environ.get("YTDLP", "yt-dlp")
-
+MODEL_NAME = os.environ.get("MODEL_NAME", "glm-4-flash")
 
 class FunASRApp:
     def __init__(self):
@@ -98,6 +99,7 @@ class FunASRApp:
             video_input,
             url_input,
             language,
+            language_translation,
             hotwords,
             format_selector,
             speaker,
@@ -184,7 +186,7 @@ class FunASRApp:
                         "sentence_info": sentence_info
                     })
                     #print(res) # 原始输出
-                    status_text, content, output_file = self.process_result(res, model, input, format_selector, speaker, timestamp)
+                    status_text, content, output_file = self.process_result(res, model, input, language_translation, format_selector, speaker, timestamp)
                     output_path.append(output_file)
                     yield status_text, content, gr.update(value=output_path, visible=True)
                 except Exception as e:
@@ -204,7 +206,7 @@ class FunASRApp:
                         segment["end"] *= 1000    # 秒 -> 毫秒
                     res = [res]
                     #print(res) # 原始输出
-                    status_text, content, output_file = self.process_result(res, model, input, format_selector, speaker, timestamp)
+                    status_text, content, output_file = self.process_result(res, model, input, language_translation, format_selector, speaker, timestamp)
                     output_path.append(output_file)
                     yield status_text, content, gr.update(value=output_path, visible=True)
                 except Exception as e:
@@ -229,7 +231,7 @@ class FunASRApp:
                     sentence_timestamp=sentence_timestamp,
                     hotword=hotwords,
                 )
-                status_text, content, output_file = self.process_result(res, model, input, format_selector, speaker, timestamp)
+                status_text, content, output_file = self.process_result(res, model, input, language_translation, format_selector, speaker, timestamp)
                 output_path.append(output_file)
                 #print(res) # 原始输出
                 yield status_text, content, gr.update(value=output_path, visible=True)
@@ -243,6 +245,7 @@ class FunASRApp:
         res, 
         model, 
         input, 
+        language_translation,
         format_selector, 
         speaker,
         timestamp,
@@ -256,10 +259,10 @@ class FunASRApp:
         base_path = os.path.join(output_dir, filename_without_extension)
         if format_selector == "LRC":
             output_file = f"{base_path}.lrc"
-            content = self._generate_lrc(res, speaker)
+            content = self._generate_lrc(res, language_translation, speaker)
         elif format_selector == "SRT":
             output_file = f"{base_path}.srt"
-            content = self._generate_srt(res, speaker)
+            content = self._generate_srt(res, language_translation, speaker)
         else:
             output_file = f"{base_path}.txt"
             if speaker:
@@ -268,7 +271,8 @@ class FunASRApp:
                     content += f"说话人{i['spk']}：{i['text']}\n"
             else:
                 content = res[0]["text"]
-
+            # 翻译
+            content = self.language_translation(content, language_translation)
         with open(output_file, "w", encoding="utf-8") as f:
             f.write(content)
         status_text = f"{model}识别成功"
@@ -277,7 +281,7 @@ class FunASRApp:
         return status_text, content, output_file
 
 
-    def _generate_lrc(self, res, speaker):
+    def _generate_lrc(self, res, language_translation, speaker):
         """生成标准LRC歌词格式"""
         lrc_lines = []
         for segment in res[0]["sentence_info"]:
@@ -290,6 +294,8 @@ class FunASRApp:
             if isinstance(text, list):
                 text = "".join(text)
             text = text.strip()
+            # 翻译
+            text = self.language_translation(text, language_translation)
             # 简化为只显示开始时间
             lrc_lines.append(f"[{start}]{text}") 
         return "\n".join(lrc_lines)
@@ -304,7 +310,7 @@ class FunASRApp:
         return f"{mins:02d}:{secs:05.2f}"  # 示例：37.28秒 → 00:37.28
 
 
-    def _generate_srt(self, res, speaker):
+    def _generate_srt(self, res, language_translation, speaker):
         """生成标准SRT字幕格式（带序号和时间范围）"""
         srt_lines = []
         for index, segment in enumerate(res[0]["sentence_info"], 1):
@@ -319,7 +325,8 @@ class FunASRApp:
             if isinstance(text, list):
                 text = "".join(text)
             text = text.strip()
-            
+            # 翻译
+            text =self.language_translation(text, language_translation)
             # 构建字幕块
             srt_lines.append(f"{index}")
             srt_lines.append(f"{start} --> {end}")
@@ -367,6 +374,36 @@ class FunASRApp:
         return downloaded_files
 
 
+    def language_translation(self, text: str, language_translation: str, retry_times: int = 3) -> str:
+        if not os.environ.get("OPENAI_API_KEY"):
+            return text
+        if language_translation == "不翻译":
+            return text
+        client = OpenAI()
+        text = text.strip()
+
+        for i in range(retry_times):
+            response = client.chat.completions.create(
+                messages=[{"role": "system", "content": """
+                    你是一位语言专家，精通各国语言。请按照要求对用户输入进行翻译，要做到语句简单、信达雅。只输出翻译内容，不要输出其他内容。
+                """
+                },
+                {
+                    "role": "user",
+                    "content":  f'请翻译成{language_translation}，"{text}"',
+                },
+                ],
+                model=MODEL_NAME,
+                temperature=0.95,
+                top_p=0.7,
+                stream=False,
+                max_tokens=4095,
+            )
+            if response.choices:
+                return response.choices[0].message.content.replace('"', '')
+        return text
+    
+
     def launch(self):
         with gr.Blocks(theme=gr.themes.Soft(), fill_height=True) as demo:
             gr.HTML(html_content)
@@ -396,9 +433,20 @@ class FunASRApp:
                             value="请先选择加载模型",
                         )
                         language_inputs = gr.Dropdown(
-                            label="语言", 
+                            label="识别语言", 
                             choices=["自动", "中文", "英文", "粤语", "日文", "韩文", "无语言"], 
                             value="自动",
+                        )
+                        language_translation = gr.Dropdown(
+                            label="翻译语言", 
+                            choices=[
+                                "不翻译", 
+                                "中文", 
+                                "英语", 
+                                "西班牙语", 
+                                "法语", "德语", "俄语", "日语", "韩语", "阿拉伯语", "葡萄牙语", "意大利语", "荷兰语", "瑞典语", "挪威语", "丹麦语", "芬兰语", "希伯来语", "希腊语", "泰语", "越南语", "印尼语", "马来语", "波斯语", "印地语", "乌尔都语", 
+                            ],
+                            value="不翻译",
                         )
                         format_selector = gr.Dropdown(
                             label="格式",
@@ -425,6 +473,7 @@ class FunASRApp:
                     video_input,
                     url_input,
                     language_inputs, 
+                    language_translation,
                     hotwords_inputs,
                     format_selector,
                     speaker,
@@ -456,7 +505,6 @@ html_content = """
 
 if __name__ == "__main__":
     print("开源项目：https://github.com/gluttony-10/Liuer bilibili@十字鱼 https://space.bilibili.com/893892 ")
-    print(f'\033[32mCUDA版本：{torch.version.cuda}\033[0m')
     print(f'\033[32mPytorch版本：{torch.__version__}\033[0m')
     if torch.cuda.is_available():
         print(f'\033[32m显卡型号：{torch.cuda.get_device_name()}\033[0m')
